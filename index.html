@@ -327,6 +327,9 @@
     <div style="position:absolute;top:0;left:0;right:0;padding:14px 16px;display:flex;justify-content:space-between;align-items:center">
       <button id="cameraClose" style="background:rgba(0,0,0,.5);color:#fff;border:0;width:38px;height:38px;border-radius:50%;font-size:18px">×</button>
       <span style="color:#fff;font-family:var(--mono);font-size:12px;background:rgba(0,0,0,.5);padding:6px 12px;border-radius:20px">Site photo</span>
+      <button id="cameraFlip" style="background:rgba(0,0,0,.5);color:#fff;border:0;width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center">
+        <svg viewBox="0 0 24 24" width="19" height="19" stroke="#fff" fill="none" stroke-width="1.8"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 014-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>
+      </button>
     </div>
     <div style="position:absolute;bottom:0;left:0;right:0;padding:22px 16px calc(22px + env(safe-area-inset-bottom));display:flex;justify-content:center;background:linear-gradient(transparent,rgba(0,0,0,.5))">
       <button id="cameraShutter" style="width:68px;height:68px;border-radius:50%;background:#fff;border:4px solid rgba(255,255,255,.4)"></button>
@@ -521,17 +524,26 @@
   });
   $("photoRemove").addEventListener("click",function(){ pendingPhoto=null; $("photoPreview").style.display="none"; $("photoImg").src=""; });
 
-  var cameraStream=null;
+  var cameraStream=null, currentFacing="environment";
+  async function openCamera(facing){
+    if(cameraStream){ cameraStream.getTracks().forEach(function(t){t.stop();}); cameraStream=null; }
+    try{
+      cameraStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:facing}},audio:false});
+      $("cameraVideo").srcObject=cameraStream;
+      currentFacing=facing;
+      return true;
+    }catch(err){ return false; }
+  }
   $("btnTakePhoto").addEventListener("click",async function(){
     if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){ $("photoFallback").click(); return; }
-    try{
-      cameraStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"}},audio:false});
-      $("cameraVideo").srcObject=cameraStream;
-      $("cameraModal").style.display="flex";
-    }catch(err){
-      toast("Camera unavailable — using file picker instead",true);
-      $("photoFallback").click();
-    }
+    var ok=await openCamera("environment");
+    if(!ok){ toast("Camera unavailable — using file picker instead",true); $("photoFallback").click(); return; }
+    $("cameraModal").style.display="flex";
+  });
+  $("cameraFlip").addEventListener("click",async function(){
+    var next=currentFacing==="environment"?"user":"environment";
+    var ok=await openCamera(next);
+    if(!ok){ toast("Could not switch camera",true); }
   });
   function stopCamera(){
     if(cameraStream){ cameraStream.getTracks().forEach(function(t){t.stop();}); cameraStream=null; }
