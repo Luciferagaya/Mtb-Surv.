@@ -165,11 +165,18 @@
         <div class="field"><label for="sampleType">Type of sample</label>
           <select id="sampleType">
             <option>Fecal</option><option>Water</option><option>Chopping board swab</option>
-            <option>Cage swab</option><option>Air</option><option>Oral swab</option>
+            <option>Cage swab</option><option>Air</option><option>Oral swab</option><option>Cloacal swab</option>
           </select>
         </div>
         <div class="field"><label for="numSamples">No. of samples</label><input id="numSamples" type="number" inputmode="numeric" min="1" value="1"></div>
-        <div class="field"><label for="sampleId">Sample ID</label><input id="sampleId" type="text" autocomplete="off"></div>
+        <div class="field span2">
+          <label>Sample ID(s) — auto-generated</label>
+          <div class="computed" id="idPreview" style="margin:0">Select a site and sample type</div>
+          <div class="btn-row" style="margin-top:8px">
+            <button type="button" class="btn ghost" id="btnEditCodes">✎ Edit site/type codes</button>
+            <button type="button" class="btn ghost" id="btnSetStart">✎ Set starting number</button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -369,7 +376,7 @@
     setDot("syncDot", config.url&&config.key ? "ok":"warn");
     $("cfgUrl").value=config.url||""; $("cfgKey").value=config.key||""; $("cfgAuto").checked=config.auto!==false;
     $("cfgCollector").value=config.collector||""; if(config.collector) $("collector").value=config.collector;
-    suggestId(); renderRecords(); renderStats(); renderSync(); renderCsvReminder();
+    updateIdPreview(); renderRecords(); renderStats(); renderSync(); renderCsvReminder();
     maybePromptSetup();
     autoTried=true; detectSite(true);
   })();
@@ -387,20 +394,77 @@
     {name:"Pocharam", habitat:"WLS", lat:18.120717, lng:78.193945},
     {name:"Manjeera WLS", habitat:"WLS", lat:17.656388, lng:78.066388}
   ];
+  var SITE_CODES={
+    "Mughal Ka Nala":"MN", "Bahadur Pura Nala":"BP", "Peerzadiguda Nala":"PZN", "Bodupal Nala":"BPN",
+    "Pocharam Nala":"PCN", "Kistareddypet Lake":"KR", "Duck Pond (left)":"Z", "Nampally Bird Market":"NBM",
+    "Sitharam Raju (P2)":"P2", "Pocharam":"PO", "Manjeera WLS":"MJ"
+  };
+  var TYPE_CODES={"Fecal":"F","Water":"W","Chopping board swab":"CB","Cage swab":"CG","Air":"A","Oral swab":"OS","Cloacal swab":"CS"};
+  function siteCode(s){ return (config.siteCodes&&config.siteCodes[s.name]) || SITE_CODES[s.name] || s.name.replace(/[^A-Za-z]/g,"").slice(0,3).toUpperCase(); }
+  function typeCode(t){ return (config.typeCodes&&config.typeCodes[t]) || TYPE_CODES[t] || t[0].toUpperCase(); }
+  function idKey(s,t){ return siteCode(s)+typeCode(t); }
+  function nextNumberFor(key){
+    var used=records.map(function(r){
+      if(!r.sampleId) return 0;
+      var id=r.sampleId.toUpperCase();
+      if(id.indexOf(key.toUpperCase())!==0) return 0;
+      var m=id.slice(key.length).match(/^\d+/);
+      return m?parseInt(m[0],10):0;
+    });
+    var localMax=used.length?Math.max.apply(null,used):0;
+    var seed=(config.idCounters&&config.idCounters[key])||0;
+    return Math.max(localMax,seed)+1;
+  }
+
   (function populateSites(){
     var sel=$("siteSelect");
     SITES.forEach(function(s,i){ var o=document.createElement("option"); o.value=i; o.textContent=s.name; sel.appendChild(o); });
   })();
   $("siteSelect").addEventListener("change",function(){
     var i=this.value;
-    if(i===""){ $("habitat").value=""; $("coords").value=""; $("rSite").textContent="—"; $("rCoords").textContent="—"; lastFix=null; lastWeather=null; $("weatherLine").style.display="none"; $("autoDetectNote").textContent=""; return; }
+    if(i===""){ $("habitat").value=""; $("coords").value=""; $("rSite").textContent="—"; $("rCoords").textContent="—"; lastFix=null; lastWeather=null; $("weatherLine").style.display="none"; $("autoDetectNote").textContent=""; updateIdPreview(); return; }
     var s=SITES[i];
     $("habitat").value=s.habitat;
     $("coords").value=s.lat.toFixed(6)+", "+s.lng.toFixed(6);
     $("rSite").textContent=s.name; $("rCoords").textContent=s.lat.toFixed(6)+", "+s.lng.toFixed(6);
     lastFix={lat:s.lat,lng:s.lng};
     lastWeather=null; $("weatherLine").style.display="none";
-    suggestId();
+    updateIdPreview();
+  });
+  $("sampleType").addEventListener("change",updateIdPreview);
+  $("numSamples").addEventListener("input",updateIdPreview);
+
+  function currentPreviewIds(){
+    var i=$("siteSelect").value; if(i==="") return null;
+    var s=SITES[i], t=$("sampleType").value, n=Math.max(1,parseInt($("numSamples").value,10)||1);
+    var key=idKey(s,t), start=nextNumberFor(key);
+    var ids=[]; for(var k=0;k<n;k++) ids.push(key+(start+k));
+    return {key:key,start:start,ids:ids};
+  }
+  function updateIdPreview(){
+    var p=currentPreviewIds(); var el=$("idPreview");
+    if(!p){ el.textContent="Select a site and sample type"; return; }
+    el.innerHTML = p.ids.length===1 ? ("Next ID: <b>"+p.ids[0]+"</b>") : ("Next IDs: <b>"+p.ids[0]+"</b> – <b>"+p.ids[p.ids.length-1]+"</b> ("+p.ids.length+" samples)");
+  }
+  $("btnEditCodes").addEventListener("click",function(){
+    var i=$("siteSelect").value;
+    if(i===""){ toast("Select a site first",true); return; }
+    var s=SITES[i], t=$("sampleType").value;
+    var newSiteCode=prompt("Site code for \""+s.name+"\":", siteCode(s));
+    if(newSiteCode===null) return;
+    var newTypeCode=prompt("Sample-type code for \""+t+"\":", typeCode(t));
+    if(newTypeCode===null) return;
+    config.siteCodes=config.siteCodes||{}; config.siteCodes[s.name]=newSiteCode.trim().toUpperCase();
+    config.typeCodes=config.typeCodes||{}; config.typeCodes[t]=newTypeCode.trim().toUpperCase();
+    setJSON("mtb-config",config); updateIdPreview(); toast("Codes updated");
+  });
+  $("btnSetStart").addEventListener("click",function(){
+    var p=currentPreviewIds(); if(!p){ toast("Select a site and sample type first",true); return; }
+    var val=prompt("Next number to use for "+p.key+" (e.g. if your spreadsheet's last "+p.key+" ID was "+p.key+(p.start-1>0?p.start-1:24)+", enter "+((p.start-1>0?p.start:25))+"):", p.start);
+    if(val===null) return;
+    var n=parseInt(val,10); if(isNaN(n)||n<1){ toast("Enter a valid number",true); return; }
+    config.idCounters=config.idCounters||{}; config.idCounters[p.key]=n;
+    setJSON("mtb-config",config); updateIdPreview(); toast("Starting number set to "+n);
   });
 
   function haversineM(lat1,lng1,lat2,lng2){
@@ -435,12 +499,7 @@
   }
   $("btnDetectSite").addEventListener("click",function(){ detectSite(false); });
 
-  function suggestId(){
-    var t=todayStamp();
-    var i=$("siteSelect").value, code=(i!==""?SITES[i].name.replace(/[^A-Za-z0-9]+/g,"").slice(0,6).toUpperCase():"AIV");
-    var n=records.filter(function(r){return (r.sampleId||"").indexOf(code+"-"+t)===0;}).length;
-    $("sampleId").value=code+"-"+t+"-"+pad(n+1);
-  }
+
 
   /* ---------- weather (for the selected fixed site) ---------- */
   $("btnAcquire").addEventListener("click",function(){
@@ -532,40 +591,39 @@
   $("btnSave").addEventListener("click",async function(){
     var siteIdx=$("siteSelect").value;
     if(siteIdx===""){ toast("Select a site",true); return; }
-    var id=$("sampleId").value.trim();
-    if(!id){ toast("Sample ID is required",true); return; }
     var dateVal=$("collDate").value;
     if(!dateVal){ toast("Date of collection is required",true); return; }
-    var dupe=records.find(function(r){ return (r.sampleId||"").toLowerCase()===id.toLowerCase(); });
-    if(dupe){
-      var when=new Date(dupe.savedAt).toLocaleString([], {day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
-      var ok=confirm("Sample ID \""+id+"\" already exists (saved "+when+", site: "+(dupe.location||"—")+"). Save anyway as a duplicate? Tap Cancel to go back and change the ID.");
-      if(!ok) return;
-    }
-    var s=SITES[siteIdx];
+    var p=currentPreviewIds();
+    if(!p || !p.ids.length){ toast("Could not generate a Sample ID",true); return; }
+    var s=SITES[siteIdx], sampleType=$("sampleType").value;
     var dt=new Date(dateVal+"T00:00:00");
     var monthNames=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
     var monthName=monthNames[dt.getMonth()], year=dt.getFullYear();
     var now=new Date().toISOString();
-    var rec={
-      id:uuid(), sampleId:id, savedAt:now, updatedAt:now, syncedAt:null, deviceId:deviceId,
-      collectionDate:dateVal, collectionMonth:monthName, collectionYear:year, monthYear1:monthName+"-"+year, monthYear:(dt.getMonth()+1)+"-"+year,
-      location:s.name, habitat:s.habitat, lat:s.lat, lng:s.lng,
-      sampleType:$("sampleType").value, numSamples:numOrNull($("numSamples").value)||1,
-      airTemp:lastWeather?lastWeather.airTemp:null, humidity:lastWeather?lastWeather.humidity:null, precip:lastWeather?lastWeather.precip:null, windSpeed:lastWeather?lastWeather.wind:null,
-      collector:$("collector").value.trim(), notes:$("notes").value.trim(),
-      photo:pendingPhoto||null
-    };
-    records.unshift(rec); await setJSON("mtb-samples",records);
-    toast("Saved "+id); resetForm(); renderRecords(); renderStats(); renderSync(); renderCsvReminder();
-    if(config.auto!==false && config.url && config.key && navigator.onLine){ syncPush([rec]).then(function(ok){ if(ok){renderRecords();renderStats();renderSync();} }); }
+    var newRecs=p.ids.map(function(sid){
+      return {
+        id:uuid(), sampleId:sid, savedAt:now, updatedAt:now, syncedAt:null, deviceId:deviceId,
+        collectionDate:dateVal, collectionMonth:monthName, collectionYear:year, monthYear1:monthName+"-"+year, monthYear:(dt.getMonth()+1)+"-"+year,
+        location:s.name, habitat:s.habitat, lat:s.lat, lng:s.lng,
+        sampleType:sampleType, numSamples:1,
+        airTemp:lastWeather?lastWeather.airTemp:null, humidity:lastWeather?lastWeather.humidity:null, precip:lastWeather?lastWeather.precip:null, windSpeed:lastWeather?lastWeather.wind:null,
+        collector:$("collector").value.trim(), notes:$("notes").value.trim(),
+        photo:pendingPhoto||null
+      };
+    });
+    for(var i=newRecs.length-1;i>=0;i--) records.unshift(newRecs[i]);
+    config.idCounters=config.idCounters||{}; config.idCounters[p.key]=p.start+p.ids.length;
+    await setJSON("mtb-samples",records); await setJSON("mtb-config",config);
+    toast(newRecs.length===1?("Saved "+newRecs[0].sampleId):("Saved "+newRecs.length+" samples: "+newRecs[0].sampleId+"–"+newRecs[newRecs.length-1].sampleId));
+    resetForm(); renderRecords(); renderStats(); renderSync(); renderCsvReminder();
+    if(config.auto!==false && config.url && config.key && navigator.onLine){ syncPush(newRecs).then(function(ok){ if(ok){renderRecords();renderStats();renderSync();} }); }
   });
   function resetForm(){
     ["notes","collDate"].forEach(function(id){$(id).value="";});
     $("numSamples").value="1"; $("siteSelect").value=""; $("habitat").value=""; $("coords").value="";
     lastFix=null; lastWeather=null;
     $("rSite").textContent="—"; $("rCoords").textContent="—";
-    $("weatherLine").style.display="none"; $("btnAcquire").textContent="☁ Fetch weather for this site"; suggestId();
+    $("weatherLine").style.display="none"; $("btnAcquire").textContent="☁ Fetch weather for this site"; updateIdPreview();
     pendingPhoto=null; $("photoPreview").style.display="none"; $("photoImg").src="";
   }
 
@@ -678,7 +736,7 @@
   });
   $("btnClear").addEventListener("click",async function(){
     if(!records.length){ toast("Already empty"); return; }
-    if(confirm("Delete ALL "+records.length+" local records? Export first if unsure. (Cloud copies remain.)")){ records=[]; await setJSON("mtb-samples",records); renderRecords(); renderStats(); renderSync(); renderCsvReminder(); suggestId(); toast("Local records cleared"); }
+    if(confirm("Delete ALL "+records.length+" local records? Export first if unsure. (Cloud copies remain.)")){ records=[]; await setJSON("mtb-samples",records); renderRecords(); renderStats(); renderSync(); renderCsvReminder(); updateIdPreview(); toast("Local records cleared"); }
   });
   function download(name,type,content){ var blob=new Blob([content],{type:type}), url=URL.createObjectURL(blob); var a=document.createElement("a"); a.href=url; a.download=name; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(function(){URL.revokeObjectURL(url);},1000); }
 
